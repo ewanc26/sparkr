@@ -1,17 +1,19 @@
-.fileopt    comment, "Stub main module"
-.fileopt    author,  "Max Bane"
+.fileopt    comment, "Sparkr main module"
+.fileopt    author,  "Sparkr project"
 
 ; Assembler options
-
 .linecont +
 
 ; imports
-
 .include "locals.inc"
 .include "ines.inc"
 .include "ppu.inc"
 .include "joy.inc"
 .include "random.inc"
+.include "player.inc"
+.include "enemies.inc"
+.include "world.inc"
+.include "screens.inc"
 
 .include "math_macros.inc"
 
@@ -27,7 +29,6 @@ INES_MAPPER         = 0 ; 0 = NROM (iNES standard mapper number)
 INES_MIRROR         = 1 ; 0 = horizontal mirroring, 1 = vertical mirroring
 INES_SRAM           = 0 ; 1 = battery backed SRAM at $6000-7FFF
 
-; INES_HEADER macro constructs the header bytes given arguments
 INES_HEADER INES_PRG_BANK_COUNT, INES_CHR_BANK_COUNT, INES_MAPPER, INES_MIRROR, INES_SRAM
 
 ;
@@ -35,32 +36,17 @@ INES_HEADER INES_PRG_BANK_COUNT, INES_CHR_BANK_COUNT, INES_MAPPER, INES_MIRROR, 
 ;
 
 .segment "TILES"
-.incbin "background.chr"
-;.incbin "chr/sprites-bee.chr"
+.incbin "background.chr"   ; $0000-$0FFF background pattern table
+.incbin "sprites.chr"      ; $1000-$1FFF sprite pattern table (Sparky)
 
 ;
-; interrupt vectors 
+; interrupt vectors
 ;
 
 .segment "VECTORS"
 .word PPU::nmi_buffered
 .word reset
 .word irq
-
-.segment "RODATA"
-.proc main_palettes
-    BG = $21
-
-    .byte BG,$09,$19,$29 ; bg0 grass tones
-    .byte BG,$09,$19,$29 ; bg1 
-    .byte BG,$01,$11,$21 ; bg2 
-    .byte BG,$00,$10,$30 ; bg3 
-
-    .byte BG,$1d,$38,$20 ; sp0 bee
-    .byte BG,$00,$10,$21 ; sp1 jet
-    .byte BG,$1B,$2B,$3B ; sp2 
-    .byte BG,$12,$22,$32 ; sp3 
-.endproc
 
 ;
 ; do-nothing irq
@@ -110,34 +96,26 @@ irq:
 ;
 ; main
 ;
+; Show the title screen, then start gameplay on world 0.
+; Screens::loop_title waits for START and returns with rendering ON.
+; World::init sets the game palette, draws the background, spawns enemies
+; and resets the player — then we fall through into the game loop forever.
+;
 
 .segment "CODE"
 .proc main
-    ; prepare palette buffer for next NMI
-    ldx #0
-    :
-        lda main_palettes, X
-        sta PPU::palette_buffer, X
-        inx
-        cpx #32
-        bcc :-
-
-    ; draw a grassy scene
-    jsr PPU::clear_background
-    Random_seed_crc16 #$ff00
-    jsr draw_grass
-
-    lda #%00011110
-    sta PPU::mask
-    lda #%10001000
-    sta PPU::ctrl
-
+    jsr Screens::loop_title     ; draws title, waits for START
+    lda #0
+    jsr World::init             ; world 0: palette, bg, enemies, player
     jmp loop_gameplay
     ; no rts
 .endproc
 
 
-; Call with A = Joy::new_buttons_?
+; ---------------------------------------------------------------------------
+; handle_input_gameplay macro
+;   Poll joypad once.  On a fresh START press, enter the pause loop.
+; ---------------------------------------------------------------------------
 .macro handle_input_gameplay
     jsr Joy::store_new_buttons
     and #Joy::BUTTON_START
@@ -146,97 +124,78 @@ irq:
     :
 .endmacro
 
-; main loop for core gameplay
+
+; ---------------------------------------------------------------------------
+; loop_gameplay — the main per-frame game loop.
+;
+; Each iteration:
+;   1. Poll input / enter pause on START
+;   2. Player physics, input, animation
+;   3. Enemy AI, movement, and collision detection vs. player
+;   4. Death check: player_hp == 0 → game-over screen, restart world 0
+;   5. World-clear check: all enemies dead → advance to next world
+;   6. Render: player sprites, enemy sprites, HUD hearts
+;   7. PPU::update — wait for NMI, push OAM/palette/nametable
+; ---------------------------------------------------------------------------
+.segment "CODE"
 .proc loop_gameplay
-    ; Physics_do_gravity_inline Constants::N_ACTORS, Constants::GRAVITY_DDY
-    ; Physics_move_actors_with_bounce_inline Constants::N_ACTORS, \
-    ;                                        Constants::FLOOR_Y, \
-    ;                                        Constants::CEILING_Y
+    ; 1. Input (START triggers pause)
     handle_input_gameplay
-    ; AI_do_ai Constants::N_ACTORS
-    ; Actor_draw_actors Constants::N_ACTORS, \
-    ;                   Constants::N_EFFECTS, \
-    ;                   {jsr Actor::draw_1x1_actor_sprite}, \
-    ;                   {jsr Actor::draw_2x2_actor_sprites}
 
-    ; Update effects
-    ; Coroutine_select Effects::effects
-    ; jsr Coroutine::step_all
+    ; 2. Player
+    jsr Player::tick
 
-    ; Wait for NMI
+    ; 3. Enemies
+    jsr Enemy::tick_all
+
+    ; 4. Death check
+    lda Player::player_hp
+    bne @alive
+    jsr Screens::loop_gameover  ; draws game-over, waits START, resets world 0
+    jmp loop_gameplay
+@alive:
+
+    ; 5. World-clear check
+    jsr Enemy::all_dead
+    cmp #1
+    bne @no_clear
+    jsr World::next             ; advance to next world (wraps 2 → 0)
+@no_clear:
+
+    ; 6. Render
+    jsr Player::render
+    jsr Enemy::render_all
+    jsr World::render_hud
+
+    ; 7. Push to PPU
     jsr PPU::update
 
-    ; Loop
     jmp loop_gameplay
 .endproc
 
+
+; ---------------------------------------------------------------------------
+; loop_paused — entered when START is pressed during gameplay.
+;
+;   • Writes "PAUSED" to the nametable (row 1, sky region — naturally blank).
+;   • Spins calling PPU::update until START is pressed again.
+;   • Erases "PAUSED" before returning so the sky row is clean.
+; ---------------------------------------------------------------------------
+.segment "CODE"
 .proc loop_paused
-    ; whoo do nothing until start is pressed again
+    ; Write "PAUSED" into the nmt update buffer, then push it
+    jsr Screens::show_paused
     jsr PPU::update
-    jsr Joy::store_new_buttons
-    and #Joy::BUTTON_START
-    beq :+
-        rts
+
+    ; Wait for START
     :
-    jmp loop_paused
-.endproc
+        jsr PPU::update
+        jsr Joy::store_new_buttons
+        and #Joy::BUTTON_START
+        beq :-
 
-.proc draw_grass
-    ; indices into background pattern tables
-    GRASS_TOPPER_OFFSET = 1
-    N_GRASS_TOPPERS = 4
-    GRASS_FILLER_OFFSET = 17
-    N_GRASS_FILLERS = 1
-    GRASS_ACCENT_OFFSET = 18
-    N_GRASS_ACCENTS = 3
-    ACCENT_PROB = 25
-
-    ; nametable tile coords
-    HORIZON_Y = 15
-
-    ; topper: fill horizontal strip of columns at HORIZON_Y with randomly chosen
-    ; grass topper tiles
-    ldx #0
-    ldy #HORIZON_Y
-    jsr PPU::address_tile
-    ldy #32
-    :
-        rand8_between GRASS_TOPPER_OFFSET, GRASS_TOPPER_OFFSET + N_GRASS_TOPPERS
-        sta PPU::REG_DATA
-        dey
-        bne :-
-
-    ; filler: fill everything below the horizon with randomly chosen grass
-    ; filler and accent tiles
-    lda #(30 - HORIZON_Y - 1) ; rows to fill
-    cur_row = local_0
-    sta cur_row
-    :
-        ldy #32 ; cols to fill
-        :
-            jsr Random::random_crc16
-            cmp #ACCENT_PROB
-            bcs filler
-            ; accent
-            mathmac_mod8 #N_GRASS_ACCENTS
-            clc
-            adc #GRASS_ACCENT_OFFSET
-            sta PPU::REG_DATA
-            jmp nextcol
-
-            filler:
-            mathmac_mod8 #N_GRASS_FILLERS
-            clc
-            adc #GRASS_FILLER_OFFSET
-            sta PPU::REG_DATA
-
-            nextcol:
-            dey
-            bne :-
-        dec cur_row
-        bne :--
-    
-
-    ; TODO attribute table
+    ; Erase "PAUSED" and push the blank tiles
+    jsr Screens::hide_paused
+    jsr PPU::update
     rts
 .endproc

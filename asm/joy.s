@@ -37,8 +37,8 @@ new_buttons_0: .res 1
         and #%00000011
         cmp #%00000001
         pla
-        ; rotate carry into gamepad variable
-        ror
+        ; rotate carry into gamepad variable (rol matches SMB bit layout)
+        rol
         dex
         bne :-
     sta pad_0

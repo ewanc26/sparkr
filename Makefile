@@ -34,7 +34,7 @@ NESFILE = $(PROJECT).nes
 #
 # This is the main definition that the developer changes to add or remove
 # modules (i.e. code and data) to or from the final iNES container.
-OBJECTS = locals.o main.o ppu.o joy.o random.o
+OBJECTS = locals.o main.o ppu.o joy.o random.o player.o enemies.o world.o screens.o
 
 # Alternatively, for zero Makefile-editing as you write new modules, you could
 # link together every object for which there is a source file:
@@ -154,6 +154,17 @@ include $(DEPS)
 # Don't delete the intermediate PNGs created by chaining the above implicit
 # rules.
 .PRECIOUS: %.png
+
+# Regenerate sprite CHR from the Python source-of-truth
+sprites: chr/sprites.chr
+chr/sprites.chr: chr/gen_sprites.py
+	python3 chr/gen_sprites.py
+.PHONY: sprites
+
+# Patch font glyphs into background.chr (run after any xcf→chr regeneration)
+font:
+	python3 chr/gen_font.py
+.PHONY: font
 
 # Below: the main pattern rules for building object and nes files with the
 # assembler and linker, respectively.
