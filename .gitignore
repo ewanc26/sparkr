@@ -12,3 +12,5 @@
 .vimrc
 chr/*.chr
 chr/*.png
+!chr/background.png
+!chr/sprites.png
