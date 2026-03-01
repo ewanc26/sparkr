@@ -1,0 +1,14 @@
+.*.sw[op]
+*.o
+*~
+*.nes
+*.nes.dbg
+*.dbg
+*.nes.deb
+*.map.txt
+*.labels.txt
+*.d
+.exrc
+.vimrc
+chr/*.chr
+chr/*.png
