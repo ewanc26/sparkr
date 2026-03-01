@@ -1,59 +1,99 @@
-# nesdev-template
+# Sparkr
 
-A simple starter template for an NES project based around the ca65 assembler and
-linker, and GNU Make. It includes:
+A NES homebrew game built with ca65 and GNU Make.
 
-* A working Makefile that builds a stub game ready for fleshing out.
-* A simple tool for automatically generating the Makefile-compatible build
-  dependencies of each module by recursively scanning the assembly source for
-  included files; the Makefile uses this by default.
-* Simple tooling to generate character ROM binaries from PNG or XCF sprite
-  sheets as part of the make process. The `bin/bmp2nes` tools is by Damian
-  Yerrick (see copyright notice there).
-* A PPU module with working reset/control routines, an NMI handler that
-  implements a simple system for buffered writes of all key graphics data: OAM
-  data (via DMA), Nametable data (via a write log), the scroll/mask/control
-  registers. Provides routines for interacting with the buffers and NMI handler.
-* Some generic math macros derived from public domain code at 6502.org and
-  cleaned up for ca65.
-* A random number generation module adapted from Damian Yerrick's code (see
-  copyright notice in `asm/random.s`).
-* A simple controller input module (`asm/joy.s`, using "joy" as in "joy stick"
-  or "joy pad").
-* A main module that ties these elements together into a simple program intended
-  for NROM cartridges that displays a static graphical scene with a minimal
-  "game loop" and some input handling, ready to be replaced and extended.
+You play as **Sparky** — a sentient static charge accidentally discharged from a
+massive power plant's main capacitor. Navigate 20 levels across 5 zones of the
+city's electrical infrastructure to reach the **Grand Transformer** and restore
+power to the metropolis.
 
-## Usage
+---
 
-Optional prerequisite: [The GIMP](https://www.gimp.org), for building graphics
-ROM data from XCF-format source assets. However, an intermediate PNG file is
-included in the repo in case you don't have gimp on the path.
+## Gameplay
 
-1. Fork this repo.
-2. Edit the Makefile to reflect the desired name of target iNES file, as well as
-   the locations of tools like ca65 and emulators.
-3. Run `make` to build the target iNES file; run `make mesen` to do the same and
-   run the Mesen emulator on the result.
-4. Begin modifying and extending the source code. As you add new modules, edit
-   the Makefile to include their object file names (.o) in the definition of the
-   OBJECTS variable, causing them to be linked into the target iNES file.
+### Core Mechanics
 
-### A note about includes and graphics
+| Mechanic | Description |
+|---|---|
+| **Static Dash** | Hold **B** to become a pure bolt of energy: 1.5× speed, auto-crosses 1-block gaps |
+| **Conductivity** | Sparky clings to metal surfaces. Press **A** on a vertical pipe to zip up/down instantly |
+| **Overload** | Collect a Battery to glow white and throw short-range sparks at enemies. Taking a hit reverts to Dim mode |
 
-`.include` statements in your ca65 assembly code are automatically detected so
-that make knows which other files (usually .inc) the module object (.o file)
-depends on.
+### Zones
 
-`.incbin` statements are also detected and mark binary files as
-dependencies of the module.
+| Zone | Levels | Theme | Key Hazard |
+|---|---|---|---|
+| **1 – The Suburbs** | 1–4 | Power lines, wooden fences, brick chimneys | Birds-on-a-wire |
+| **2 – The Underground** | 5–8 | Damp sewers, copper piping | Water droplets (instant short-out) |
+| **3 – The Neon District** | 9–12 | City skylines, flickering neon signs | Neon Bats (sine-wave flight), Flicker Platforms |
+| **4 – The Automated Factory** | 13–16 | Conveyor belts, magnets, pistons | Stomper pistons; Magnetic Pull mechanic |
+| **5 – The Grand Transformer** | 17–20 | Circuit boards, plasma cores | Rising Dead Current (Level 19 vertical climb) |
 
-Make will attempt to create dependencies that don't exist (or are out of date)
-if it knows how, and the Makefile includes rules for creating binary CHR data
-from PNGs, and PNGs from Gimp XCF files. Therefore it is only necessary to put
-an XCF file `foo.xcf` in your repo as the "source" asset for some graphics, then
-`.incbin foo.chr` in your assembly code, and Make will automatically determine
-that it can satisfy the need for `foo.chr` by creating `foo.png` from `foo.xcf`
-and then `foo.chr` from `foo.png`, and that it must do so before assembling the
-module. See the example graphics files (`chr/*.xcf`) for the pixel layout and
-color format conventions expected by the graphics conversion tools.
+**Final Boss:** The Blackout — a cloud of sentient smog that tries to smother your spark.
+
+### The NES Secret
+
+Every 4th level (end of each zone) hides a **Hidden Capacitor**. Collect all five
+to unlock the true ending: Sparky becomes the sun of a new digital world.
+
+---
+
+## Technical
+
+| Feature | Detail |
+|---|---|
+| **Graphics** | High-contrast sprites; bright yellow/cyan Sparky against dark industrial backgrounds |
+| **Music** | Fast-paced syncopated chiptune with buzzing triangle-wave basslines |
+| **Physics** | Low-friction momentum model (`Vf = Vi + at`); Sparky slides when stopping |
+| **Mapper** | NROM |
+
+---
+
+## Building
+
+### Prerequisites
+
+- [cc65](https://cc65.github.io) (ca65 assembler + ld65 linker)
+- GNU Make
+- *(Optional)* [GIMP](https://www.gimp.org) for rebuilding CHR data from XCF source assets
+
+### Setup
+
+Edit the `Makefile` to point `CC65DIR` at your local cc65 installation and
+set emulator paths if you want the `make mesen` / `make fceux` etc. targets.
+
+### Build
+
+```bash
+make          # produces dist/sparkr.nes
+make mesen    # build and launch in Mesen
+make clean    # remove all generated files
+```
+
+### Adding new modules
+
+Add the `.o` filename to the `OBJECTS` variable in the `Makefile`, then create
+the corresponding `.s` source file in `asm/`. The autodep tool will automatically
+track `.include` and `.incbin` dependencies.
+
+---
+
+## Project Layout
+
+```
+asm/        Assembly source modules
+chr/        Sprite / background assets (XCF → PNG → CHR pipeline)
+inc/        Shared include files and macros
+ldcfg/      ld65 linker configuration (NROM)
+bin/        Build tools (autodep, bmp2nes, xcf2png)
+```
+
+---
+
+## License
+
+BSD 3-Clause. See [LICENSE.md](LICENSE.md).
+
+The `bin/bmp2nes` tool is by Damian Yerrick (see copyright notice within).  
+The random number module (`asm/random.s`) is adapted from Damian Yerrick's code
+(see copyright notice within).

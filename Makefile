@@ -1,7 +1,7 @@
 # GNU Makefile for template nesdev project.
 
 # Project title, basename of final iNES container file.
-PROJECT = template
+PROJECT = sparkr
 
 # Location of the base directory of the cc65 distribution or repository; must
 # contain a bin/ subdirectory where ca65 and ld65 are located.
