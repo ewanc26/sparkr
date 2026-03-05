@@ -94,6 +94,10 @@ bin/        Build tools (autodep, bmp2nes, xcf2png)
 
 BSD 3-Clause. See [LICENSE.md](LICENSE.md).
 
+## ☕ Support
+
+If you found this useful, consider [buying me a ko-fi](https://ko-fi.com/ewancroft)!
+
 The `bin/bmp2nes` tool is by Damian Yerrick (see copyright notice within).  
 The random number module (`asm/random.s`) is adapted from Damian Yerrick's code
 (see copyright notice within).
